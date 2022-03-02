@@ -1,0 +1,5 @@
+Welcome to Wordle!
+
+You will guess a five-letter word each turn in all-caps. If a ` appears next to a letter, you can assume that letter is in the correct word just in a different position than in your guess. If a * appears next to a letter then it is in the same position in the correct answer. For now, you get unlimited guesses.
+
+GOOD LUCK AND REMEMBER ALL CAPS!
