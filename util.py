@@ -3,6 +3,7 @@ Utility file for storing functions for project
 """
 
 from ast import For
+import random
 from colorama import init, Fore, Back
 
 def create_dict(list) -> dict[str, bool]:
@@ -55,3 +56,16 @@ def printAsKeyboard(dict) -> None:
             elif info == "B":
                 thirdRow = thirdRow.replace(f"{t} ", Fore.BLACK + f"{t} ")     
     print(f"{firstRow}\n{secondRow}\n{thirdRow}")
+
+def buildRandList(number):
+    with open("allowed_words.txt", "r") as f:
+        guessList = list(f.read().upper().split())
+    randList = random.sample(guessList, k = number)
+    return randList
+
+def listMinus(list1, list2):
+    diff = []
+    for obj in list1:
+        if obj not in list2:
+            diff.append(obj)
+    return diff
