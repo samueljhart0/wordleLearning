@@ -16,23 +16,23 @@ class Pattern:
 
     def buildPattern(self):
         adic = Counter([a for a in self.answer])
-        pattern = ["b"] * len(self.word)
+        pattern = "b" * 5
         for i, a in enumerate(self.answer):
             if self.word[i] == a:
-                pattern[i] = "G"
+                pattern = pattern[:i] + "G" + pattern[i+1:]
                 adic[a] -= 1
         for j, g in enumerate(self.word):
             if pattern[j] == "G":
                 continue
             elif adic[g] is None:
-                pattern[j] = "b"
+                pattern = pattern[:j] + "b" + pattern[j+1:]
             else:
                 if adic[g] == 0:
-                    pattern[j] = "b"
+                    pattern = pattern[:j] + "b" + pattern[j+1:]
                 else:
-                    pattern[j] = "Y"
+                    pattern = pattern[:j] + "Y" + pattern[j+1:]
                     adic[g] -= 1
-        return tuple(pattern)
+        return pattern
     
     
     def buildString(self):
