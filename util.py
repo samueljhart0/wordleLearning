@@ -3,6 +3,7 @@ Utility file for storing functions for project
 """
 
 from ast import For
+import math
 import random
 from colorama import init, Fore, Back
 
@@ -69,3 +70,37 @@ def listMinus(list1, list2):
         if obj not in list2:
             diff.append(obj)
     return diff
+
+def terToDec(tern):
+    dec = 0
+    power = 1
+    for i in range(len(tern) - 1, -1, -1):
+        dig = int(tern[i])
+        dec += dig * power
+        power *= 3
+    return dec
+
+def decToTern(dec):
+    tern = ""
+    while dec >= 3:
+        dig = dec % 3
+        tern = str(dig) + tern
+        dec = dec // 3
+    tern = str(dec) + tern
+    return tern
+
+def logAll(array):
+    for i, a in enumerate(array):
+        array[i] = log(a)
+    return array
+
+def log(number):
+    if number > 0:
+        return math.log2(number)
+    else:
+        return 0
+
+if __name__ == '__main__':
+    patterns = dict()
+    if not patterns:
+        print("TRUE")

@@ -1,111 +1,157 @@
 from copy import deepcopy
-from colorama import init
-from math import log2 as log
-from decision import TreeNode
-from pattern import Pattern
+from importlib.metadata import distribution
+from tkinter import Pack
+from colorama import init, Fore
+import numpy as np
+import itertools as it
+from util import logAll
 
 """
-File for data processing and data exploration
-
-Ideas for data storage:
-1. Nested dictionaries where the first is all words starting with A and so on
-2. N
-
-Ideas for data exploration:
-1. 26x5 heat map of prob of letter in each position; maybe two of these.
-   One that sums by row and one that sums by column
-2. 
+This file handles aspects of the data associated with the game. Some of these functions are not my own. Much credit has
+to be given to Grant Sanderson, aka 3Blue1Brown. Without his help, I would not have been able to produce some of my
+results. More documentation coming soon!
 """
+
+GREY = np.uint8(0)
+YELLOW = np.uint8(1)
+GREEN = np.uint8(2)
+
+WORD_FILE = "data/allowed_words.txt"
+PATTERN_FILE = "data/patternMatrix.npy"
 
 class Data:
-    def __init__(self, answer, guessList = None, answerList = None):
+    def __init__(self, answer, allowed = None, possible = None):
         init(autoreset=True)
-        if not guessList and not answerList:
-            with open("allowed_words.txt", "r") as f:
-                guessList = list(f.read().upper().split())
-            answerList = deepcopy(guessList)
-        self.guesses = guessList
-        self.answers = answerList
-        self.probTable = {}
-        self.infoTable = {}
+        if not possible:
+            with open(WORD_FILE, "r") as f:
+                allowed = list(f.read().upper().split())
+                possible = deepcopy(allowed)
+        self.allowed = allowed
+        self.possible = possible
         self.trueAnswer = answer
-        self.letters = {"A" : "B", "B" : "B", "C" : "B", "D" : "B", "E" : "B", "F" : "B", "G" : "B", "H" : "B", "I" : "B", "J" : "B", "K" : "B", "L" : "B", "M" : "B",
-                        "N" : "B", "O" : "B", "P" : "B", "Q" : "B", "R" : "B", "S" : "B", "T" : "B", "U" : "B", "V" : "B", "W" : "B", "X" : "B", "Y" : "B", "Z" : "B"}
+        self.patterns = dict()
 
+    # Functions to use in Game
 
-    def guessToString(self, guess):
-        pattern = Pattern(guess, self.trueAnswer)
-        self.update(pattern)
-        return pattern.string
+    def processGuess(self, guess):
+        pattern = self.getPattern(guess, self.trueAnswer)
+        string = self.patternToString(pattern, guess)
+        self.updateData(guess, pattern)
+        return string
 
+    def updateData(self, guess, pattern):
+        self.possible = self.getPossibleWords(guess, pattern, self.possible)
 
-    def update(self, pattern):
-        for i in range(len(pattern.word)):
-            l, c = pattern.word[i], pattern.pattern[i]
-            if c == "G":
-                self.letters[l] = c
-            elif c == "Y":
-                if self.letters[l] != "G":
-                    self.letters[l] = c
-            elif c == "b":
-                if self.letters[l] != "G" and self.letters[l] != "Y":
-                    self.letters[l] = "b"
-        newA = self.newAnswers(pattern)
-        newG = self.newGuesses(pattern)
-        self.probTable = {}
-        self.infoTable = {}
-        for w in newA:
-            self.probTable[w] = 1 / len(newA)
-        for w in newG:
-            if self.probTable.get(w) is None:
-                self.probTable[w] = 0.0
-            self.infoTable[w] = 0
-            patterns = {}
-            for a in newA:
-                p = Pattern(w, a)
-                if patterns.get(p.pattern) is None:
-                    patterns[p.pattern] = 0
-                patterns[p.pattern] += 1
-            for count in patterns.values():
-                prob = count / len(newA)
-                self.infoTable[w] += prob * -log(prob)
-        self.guesses = newG
-        self.answers = newA
-        
+    def giveNextGuess(self):
+        if len(self.possible) < 4:
+            return self.possible[0]
+        else:
+            C = self.getPatternProbs(self.allowed, self.possible)
+            C[C==0.0] = 1.0
+            E = (-C*np.log2(C)).sum(1)
+            return self.allowed[np.argmax(E)]
 
-    def newGuesses(self, pattern):
-        newG = []
-        for word in self.guesses:
-            if not pattern.violate(word):
-                newG.append(word)
-        return newG
-
-    def newAnswers(self, pattern):
-        newA = []
-        for word in self.answers:
-            if pattern.match(word):
-                newA.append(word)
-        return newA
 
     def giveTopTen(self):
-        if len(self.answers) == 1:
-            return [(self.answers[0], 0.0, 1.0)]
-        if len(self.answers) == 2:
-            return [(self.answers[0], 1.0, 0.5), (self.answers[1], 1.0, 0.5)]
+        if len(self.possible) == 1:
+            return [(self.possible[0], 0.0, 1.0)]
+        if len(self.possible) == 2:
+            return [(self.possible[0], 1.0, 0.5), (self.possible[1], 1.0, 0.5)]
+        probs = {p : 1 / len(self.possible) for p in self.possible}
+        C = self.getPatternProbs(self.allowed, self.possible)
+        C[C==0.0] = 1.0
+        E = (-C * np.log2(C)).sum(1)
+        ind = np.argsort(E)[-10:]
         topTen = []
-        for word, info in self.infoTable.items():
-            inserted = False
-            for i, pack in enumerate(topTen):
-                _, ti, _ = pack
-                if info >= ti:
-                    topTen.insert(i, (word, info, self.probTable[word]))
-                    topTen.pop()
-                    break
-            if inserted == False and len(topTen) < 10:
-                topTen.append((word, info, self.probTable[word]))
+        for i in ind:
+            topTen.insert(0, (self.allowed[i], E[i], probs.get(self.allowed[i], 0.0)))
         return topTen
+        
+
+    def statsToPrint(self):
+        topTen = self.giveTopTen()
+    
+    # General Functions
+
+    def wordsToArrays(self, words):
+        return np.array([[ord(c) for c in w] for w in words], dtype=np.uint8)
+    
+    
+    def patternMatrix(self, words1, words2):
+        array1, array2 = map(self.wordsToArrays, (words1, words2))
+        equality = np.zeros((len(words1), len(words2), 5, 5), dtype=bool)
+        for i, j in it.product(range(5), range(5)):
+            equality[:, :, i, j] = np.equal.outer(array1[:,i], array2[:,j])
+        patterns = np.zeros((len(array1), len(array2), 5), dtype=np.uint8)
+        for i in range(5):
+            matches = equality[:, :, i, i].flatten()
+            patterns[:,:,i].flat[matches] = GREEN
+            for k in range(5):
+                equality[:,:,k,i].flat[matches] = False
+                equality[:,:,i,k].flat[matches] = False
+        for i, j in it.product(range(5), range(5)):
+            matches = equality[:,:,i,j].flatten()
+            patterns[:,:,i].flat[matches] = YELLOW
+        return np.dot(patterns, (3**np.arange(5)).astype(np.uint8))
+
+    def getPatternMatrix(self, words1, words2):
+        if not self.patterns:
+            self.patterns["grid"] = np.load(PATTERN_FILE)
+            self.patterns["wordsToIndex"] = dict(zip(self.allowed, it.count()))
+        grid = self.patterns["grid"]
+        wordsToIndex = self.patterns["wordsToIndex"]
+        ind1 = [wordsToIndex[w] for w in words1]
+        ind2 = [wordsToIndex[w] for w in words2]
+        return grid[np.ix_(ind1, ind2)]
 
 
+    def getPattern(self, guess, answer):
+        if self.patterns:
+            saved_words = self.patterns["wordsToIndex"]
+            if guess in saved_words and answer in saved_words:
+                return self.getPatternMatrix([guess], [answer])[0,0]
+        return self.patternMatrix([guess], [answer])[0,0]
 
-    def calcInfoGain(self, word):
-        pattern = Pattern(word, self.trueAnswer)
+
+    def stringToPattern(self, pattern_string):
+        return sum((3**i) * int(c) for i, c in enumerate(pattern_string))
+
+
+    def patternToList(self, pattern):
+        result = []
+        curr = pattern
+        for x in range(5):
+            result.append(curr % 3)
+            curr = curr // 3
+        return result    
+
+    def patternToString(self, pattern, word):
+        d = {GREY : Fore.BLACK, YELLOW : Fore.YELLOW, GREEN : Fore.GREEN}
+        return "".join(d[c] + word[i] for i, c in enumerate(self.patternToList(pattern)))
+
+    def patternsToString(self, patterns, words):
+        return "\n".join(map(self.patternToString, (patterns, words)))
+
+    def getPossibleWords(self, guess, pattern, words):
+        all_patterns = self.getPatternMatrix([guess], words).flatten()
+        return list(np.array(words)[all_patterns == pattern])
+
+    def getAllowedWords(self, guess, pattern, words):
+        all_patterns = self.getPatternMatrix([guess], words).flatten()
+        list = self.patternToList(pattern)
+        return
+
+    def getWordBuckets(self, guess, possibleWords):
+        buckets = [[] for _ in range(243)]
+        hashes = self.getPatternMatrix([guess], possibleWords).flatten()
+        for i, word in zip(hashes, possibleWords):
+            buckets[i].append(word)
+        return buckets
+    
+    def getPatternProbs(self, allowed, possible):
+        probs = [1.0 / len(possible) for _ in possible]
+        patterns = self.getPatternMatrix(allowed, possible)
+        counts = np.zeros((len(allowed), 243))
+        for j, prob in enumerate(probs):
+            counts[np.arange(len(allowed)), patterns[:, j]] += prob
+        return counts
