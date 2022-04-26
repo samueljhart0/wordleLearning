@@ -4,6 +4,8 @@ import numpy as np
 import itertools as it
 import os
 
+from wordfreq import word_frequency
+
 
 """
 This file handles aspects of the data associated with the game. Some of these functions are not my own. Much credit has
@@ -16,7 +18,7 @@ GREY = np.uint8(0)
 YELLOW = np.uint8(1)
 GREEN = np.uint8(2)
 
-
+FREQ_FILE = "data/frequencies.npy"
 WORD_FILE = "data/allowed_words.txt"
 PATTERN_FILE = "data/patternMatrix.npy"
 
@@ -29,13 +31,14 @@ class Data:
 
     Parameters:
 
-    answer : the true answer of the game instance for which this Data instance is managing the data.
+    answer : the true answer of the game instance for which this Data instance is managing the data. This answer can be
+             left as None, in the case that we want help on the daily Wordle online.
 
     allowed : the list of words that we are allowed to guess. Note that if no list is passed in this uses the original 
-    Wordle guess list before the NYT buyout.
+              Wordle guess list before the NYT buyout.
 
     possible : the list of words that could possible be the answer. Note that if no list is passed in then this is the
-    same as the guess list since the algorithms assume that any possible guess could be the answer.
+               same as the guess list since the algorithms assume that any possible guess could be the answer.
     """
     def __init__(self, answer = None, allowed = None, possible = None):
         if not allowed:
@@ -47,9 +50,21 @@ class Data:
         self.possible = possible
         self.trueAnswer = answer
         self.patterns = dict()
+        self.freq = dict()
 
 
     def processInput(self, guess, pattern):
+        """
+        This function can take in both a guess and a pattern to update the data. Normally, this occurs using the
+        trueAnswer attribute of the Data instance. However, when we want to use the program to help us on the daily
+        Wordle, we do not know this true answer and must pass in the patterns we see.
+
+        Parameters:
+
+        guess : your latest guess on the daily Wordle online.
+
+        pattern : the pattern you saw with that latest guess.
+        """
         if not isinstance(pattern, int):
             pattern = self.stringToPattern(pattern)
         self.possible = self.getPossibleWords(guess, pattern, self.possible)
@@ -77,7 +92,8 @@ class Data:
     def giveNextGuess(self):
         """
         This function returns what is the next best guess based on the metric of expected information gain from
-        guessing that word.
+        guessing that word. It follows the conditions laid out in the report, where the justifications for these
+        choices can be found.
 
         Returns:
 
@@ -85,8 +101,11 @@ class Data:
 
         """
         # If there is 2 or less possible answers just return the first one.
-        if len(self.possible) < 3:
-            nextGuess = self.possible[0]
+        freq = self.wordFreq(self.possible)
+        if max(freq) > 0.5:
+            nextGuess = self.possible[np.argmax(freq)]
+        elif len(self.possible) <= 4:
+            nextGuess = self.possible[np.argmax(freq)]
         else:
             C = self.getPatternProbs(self.allowed, self.possible)
             C[C==0.0] = 1.0
@@ -109,15 +128,16 @@ class Data:
               the probability that the guess is the answer.
         """
         # If there is 2 or less possible answers those are the top guesses
-        if len(self.possible) == 1:
-            top = [(self.possible[0], 0.0, 0.0, 1.0)]
-        elif len(self.possible) == 2:
-            top = [(self.possible[0], 1.0,0.0, 0.5), (self.possible[1], 1.0,0.0, 0.5)]
+        freq = self.wordFreq(self.possible)
+        if max(freq) > 0.5:
+            top = [(self.possible[i], 0.0, freq[i]) for i in np.argsort(freq)[::-1]]
+        elif len(self.possible) <= 4:
+            top = [(self.possible[i], 0.0, freq[i]) for i in np.argsort(freq)[::-1]]
         else:
             # Perform information gain calculations
 
             # Get the probability of each possible answer
-            probs = {p : 1 / len(self.possible) for p in self.possible}
+            probs = {p : freq[i] for i, p in enumerate(self.possible)}
 
             # Get the probabilities of all possible patterns we could see for each guess
             C = self.getPatternProbs(self.allowed, self.possible)
@@ -129,18 +149,13 @@ class Data:
             # This matrix holds expected information gain for each word
             E = (C * logC).sum(1)
 
-            # Reshaped version of info matrix to perform variance calculation
-
-            # Variance calculation
-            V = (C * logC * logC).sum(1) - (E * E)
-
             # Get the number of words with the highest expected information gain
             ind = np.argsort(E)[-number:]
 
             # Build the top matrix
             top = []
             for i in ind:
-                top.insert(0, (self.allowed[i], E[i], V[i], probs.get(self.allowed[i], 0.0)))
+                top.insert(0, (self.allowed[i], E[i], probs.get(self.allowed[i], 0.0)))
         return top
 
 
@@ -150,7 +165,26 @@ class Data:
         are all the same for this copy.
         """
         return Data(copy(self.trueAnswer), deepcopy(self.allowed), deepcopy(self.possible))
+
     
+    def wordFreq(self, words):
+        """
+        This functions gets the normalized distribution of English word frequencies of a list of words.
+
+        Parameters:
+
+        words : the list of words to get frequencies for.
+
+        Returns:
+        
+        freq : the list of frequencies with respect to the word list. Frequencies are normalized so they sum to one.
+        """
+        freq = np.zeros(len(words))
+        for i, word in enumerate(words):
+            freq[i] = word_frequency(word, 'en')
+        freq /= freq.sum()
+        return freq
+
 
     """
     The following functions come from https://github.com/3b1b/videos/blob/master/_2022/wordle/simulations.py
@@ -324,7 +358,7 @@ class Data:
         colors its characters based on the pattern passed in.
         """
         d = {GREY : Fore.BLACK, YELLOW : Fore.YELLOW, GREEN : Fore.GREEN}
-        return "".join(d[c] + word[i] for i, c in enumerate(self.patternToList(pattern)))
+        return "".join(d[c] + word[i] + Fore.BLACK for i, c in enumerate(self.patternToList(pattern)))
 
 
     def patternsToString(self, patterns, words):
@@ -364,7 +398,7 @@ class Data:
         jth column of this matrix corresponds to the probability of seeing the pattern, whose decimal representation is
         given by j, when guessing the ith word in the allowed guesses list.
         """
-        probs = [1.0 / len(possible) for _ in possible]
+        probs = self.wordFreq(possible)
         patterns = self.getPatternMatrix(allowed, possible)
         counts = np.zeros((len(allowed), 243))
         for j, prob in enumerate(probs):

@@ -8,19 +8,26 @@ import matplotlib.pyplot as plt
 from colorama import init
 from  matplotlib.colors import LinearSegmentedColormap
 
+"""
+This file holds functions that were used to build the plots in the poster and report. These are the functions run in
+the 'plots' mode.
+"""
 
 def letterDistributions():
+    """
+    Builds letter/position heatmaps and saves them in the plots directory.
+    """
     with open(WORD_FILE, 'r') as f:
-        guessList = list(f.read().upper().split())
+        answerList = list(f.read().upper().split())
     
     letters = np.array(list("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
-    engFreq = np.array([0.082, 0.015, 0.027, 0.047, 0.13, 0.022, 0.02, 0.062, 0.069, 0.0016, 0.0081, 0.04, 0.027,
-                        0.067, 0.078, 0.019, 0.0011, 0.059, 0.062, 0.096, 0.027, 0.0097, 0.024, 0.0015, 0.02, 0.00078])
+    engFreq = np.array([0.08167, 0.01492, 0.02782, 0.04253, 0.12702, 0.02228, 0.02015, 0.06094, 0.06966, 0.00153, 0.00772, 0.04025, 0.02406,
+                        0.06749, 0.07507, 0.01929, 0.00095, 0.05987, 0.06327, 0.09056, 0.02758, 0.00978, 0.02360, 0.00150, 0.01974, 0.00074])
     engInd = np.argsort(engFreq)[::-1]
     alphabet = dict(zip(letters, it.count()))
     heatMap = np.zeros((26,5))
     letterBuckets = np.zeros(26)
-    for word in guessList:
+    for word in answerList:
         for i, l in enumerate(word):
             heatMap[alphabet[l]][i] += 1
             letterBuckets[alphabet[l]] += 1
@@ -69,13 +76,17 @@ def letterDistributions():
     
 
 def simulateAll(guessList):
+    """
+    Simulates 500 games starting from each of the words in the guessList parameter.
+    """
+    random.seed(123)
     dataStore = dict()
     dataStore["wordsToIndex"] = dict(zip(guessList, it.count()))
-    dataStore["avg"] = [0 for _ in range(len(guessList))]
-    dataStore["buckets"] = [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0] for _ in range(len(guessList))]
+    dataStore["avg"] = np.zeros(len(guessList))
+    dataStore["buckets"] = np.zeros((len(guessList), 10))
 
     with open(ANSWER_FILE, "r") as f:
-        answerList = random.sample(list(f.read().upper().split()), 250)
+        answerList = random.sample(list(f.read().upper().split()), 500)
     
     for guess in guessList:
         guessBuckets = [0 for _ in range(10)]
@@ -84,6 +95,7 @@ def simulateAll(guessList):
         denominator = 0
         avg = 1
         for i in tqdm(range(len(answerList)), ncols=100, leave=True):
+        # for i in range(len(answerList)):
             answer = answerList[i]
             game = Game(answer)
             trial = game.simulate(guess)
@@ -98,44 +110,38 @@ def simulateAll(guessList):
     return dataStore
 
 def buildPlots():
-    with open(ANSWER_FILE, "r") as f:
-        trueAnswerList = list(f.read().upper().split())
-    # Plot first step entropies
-    data = Data(answer=None, allowed=None, possible=trueAnswerList)
-    topTen = data.giveTop(10)
-    words, infos = [], []
-    for i in range(10):
-        word, info  = topTen[i][0], topTen[i][1]
-        words.append(word)
-        infos.append(info)
-    fig = plt.figure(figsize=(8,4))
-    ax = fig.add_subplot(111)
-    plt.bar(words, infos)
-    plt.xlabel('Start Word')
-    plt.ylabel('Expected bits of Information')
-    for i, v in enumerate(infos):
-        ax.text(i, v + 0.05, "%.2f" %v, ha="center")
-    plt.savefig("plots/entropiesFirstStep")
-    # Plot second step entropies
-    secondSteps = []
-    for word, stepOne in zip(words, infos):
-        patternProbs = data.getPatternProbs([word], data.possible).flatten()
-        for i in range(242):
-            patternProb = patternProbs[i]
-            thisData = data.copy()
-            thisData.processInput(word, i)
-            topGuess = thisData.giveTop(1)
-            stepOne += patternProb * topGuess[0][1]
-        secondSteps.append(stepOne)
-    fig = plt.figure(figsize=(8,4))
-    ax = fig.add_subplot(111)
-    plt.bar(words, secondSteps)
-    plt.xlabel('Start Word')
-    plt.ylabel('Expected bits after second guess')
-    for i, v in enumerate(secondSteps):
-        ax.text(i, v + 0.05, "%.2f" %v, ha="center")
-    plt.savefig("plots/entropiesSecondStep")
-    # Make selection of good words
-    selection = ["TARES", "SLATE", "SALET", "SOARE", "ARISE", "ADIEU", "CRANE", "TRACE", "CRATE"]
+    """
+    Builds the histograms from the simulated games.
+    """
+    # Candidate words are those of the top 100 starting entropy
+    data = Data("DUMMY")
+    candidates = []
+    top = data.giveTop(100)
+    for row in top:
+        candidates.append(row[0])
 
     # Simulate these and plot their histograms and display their averages
+    allData = simulateAll(candidates)
+    averages = allData["avg"]
+    
+    # Get the best 2 and then add the popular starting words
+    wordsToPlot = np.argsort(averages)[:6]
+
+    # Change last 4 indices to those of the popular starting words
+    wordsToPlot[2] = allData["wordsToIndex"]["ARISE"]
+    wordsToPlot[3] = allData["wordsToIndex"]["ADIEU"]
+    wordsToPlot[4] = allData["wordsToIndex"]["CRATE"]
+    wordsToPlot[5] = allData["wordsToIndex"]["SOARE"]
+    for idx in wordsToPlot:
+        word = candidates[idx]
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.set_xticks(np.arange(10), labels=[1,2,3,4,5,6,7,8,9,10])
+        plt.bar(np.arange(10), allData["buckets"][idx], color='green')
+        plt.title(f"{word} Histogram | Avg: {averages[idx]}")
+        plt.ylabel('# of games')
+        plt.xlabel('# of guesses to get answer')
+        fig.tight_layout()
+        plt.savefig(f"plots/{word}histogram", dpi=300, bbox_inches="tight")
+
+
